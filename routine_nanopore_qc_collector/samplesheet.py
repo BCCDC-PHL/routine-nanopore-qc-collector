@@ -63,35 +63,3 @@ def find_samplesheet_for_run(run_id, sequencer_output_dirs):
         samplesheet_path = samplesheets[0]
 
     return samplesheet_path
-
-
-def count_covid19_production_samples_in_samplesheet(samplesheet_path, sequencer_type):
-    """
-    """
-    num_covid19_production_samples = 0
-    if sequencer_type == 'nextseq':
-        with open(samplesheet_path, 'r') as f:
-            for row in f:
-                if re.search(',covid-19_production,', row):
-                    num_covid19_production_samples += 1
-    elif sequencer_type == 'miseq':
-        covid_library_id_regexes = [
-            'S\d{1,3},[ER]\d{10},',                                  # Container ID only
-            'S\d{1,3},[FHSTW]\d{6},',                                # Foreign Container ID
-            'S\d{1,3},X\d{5},',                                      # Foreign Container ID
-            'S\d{1,3},[ER]\d{10}-\d{1,4}-[A-Z0-9]{1,2}-[A-H]\d{2},', # Container ID-Plate Num-Index Set ID-Well
-            'S\d{1,3},POS',                                          # Positive control
-            'S\d{1,3},NEG',                                          # Negative control
-        ]
-        with open(samplesheet_path, 'r') as f:
-            for row in f:
-                library_id_matches = []
-                for r in covid_library_id_regexes:
-                    if re.match(r, row):
-                        library_id_matches.append(re.match(r, row).group(0))
-                    else:
-                        library_id_matches.append(None)
-                if any(library_id_matches):
-                    num_covid19_production_samples += 1
-
-    return num_covid19_production_samples
