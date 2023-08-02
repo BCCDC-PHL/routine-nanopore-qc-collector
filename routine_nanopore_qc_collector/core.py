@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 
 from typing import Iterator, Optional
 
@@ -172,6 +173,27 @@ def infer_species(config: dict[str, object], species_abundance):
     return inferred_species
 
 
+def infer_genus(config: dict[str, object], species_abundance, inferred_species):
+    """
+    :return: Name of inferred genus.
+    :rtype: str
+    """
+    species_abundance_keys = [
+        'abundance_5_',
+        'abundance_4_',
+        'abundance_3_',
+        'abundance_2_',
+        'abundance_1_',
+    ]
+    inferred_genus = None
+    for k in species_abundance_keys:
+        if k + 'name' in species_abundance and species_abundance[k + 'name'] == inferred_species:
+            inferred_genus = species_abundance[k + 'genus_name']
+
+    return inferred_genus
+
+
+
 def get_percent_reads_by_species_name(species_abundance, species_name):
     """
     """
@@ -187,11 +209,66 @@ def get_percent_reads_by_species_name(species_abundance, species_name):
     for k in species_abundance_keys:
         try:
             if species_abundance[k + 'name'] == species_name:
-                percent_reads = 100 * species_abundance[k + 'fraction_total_reads']
+                percent_reads = round(100 * species_abundance[k + 'fraction_total_reads'], 3)
         except KeyError as e:
             pass
 
     return percent_reads        
+
+
+def get_percent_reads_by_genus_name(species_abundance, genus_name):
+    """
+    """
+    percent_reads = 0.0
+    species_abundance_keys = [
+        'abundance_1_',
+        'abundance_2_',
+        'abundance_3_',
+        'abundance_4_',
+        'abundance_5_',
+    ]
+
+    for k in species_abundance_keys:
+        try:
+            if species_abundance[k + 'genus_name'] == genus_name:
+                percent_reads += 100 * species_abundance[k + 'fraction_total_reads']
+        except KeyError as e:
+            pass
+
+    percent_reads = round(percent_reads, 3)
+
+    return percent_reads
+
+
+def add_genus(kraken_species_record):
+    """
+    """
+    taxid = kraken_species_record['ncbi_taxonomy_id']
+    if taxid != '0':
+        echo_cmd = [
+            'echo',
+            taxid,
+        ]
+        taxonkit_cmd = [
+            'taxonkit',
+            'reformat',
+            '-F',
+            '-I', '1',
+            '-f', '"{g}|{s}"',
+            '-t',
+        ]
+        try:
+            echo_result = subprocess.run(echo_cmd, text=True, capture_output=True, check=True)
+            taxonkit_result = subprocess.run(taxonkit_cmd, input=echo_result.stdout, text=True, capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(json.dumps({"event_type": "add_genus_failed", "ncbi_taxonomy_id": taxid}))
+        taxonkit_output = list(map(lambda x: x.strip('"'), taxonkit_result.stdout.strip().split('\t')[1:]))
+        genus_name = taxonkit_output[0].split('|')[0]
+        genus_taxid = taxonkit_output[1].split('|')[0]
+        kraken_species_record['genus_taxon_name'] = genus_name
+        kraken_species_record['genus_ncbi_taxonomy_id'] = genus_taxid
+    
+    return kraken_species_record
     
     
 def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, str]]):
@@ -228,10 +305,15 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                 abundance_num = 1
                 for kraken_species_record in kraken_species[0:7]:
                     if kraken_species_record['rank_code'] == 'U':
-                        library_species_abundance['unclassified_fraction_total_reads'] = kraken_species_record['percent_seqs_in_clade'] / 100
+                        library_species_abundance['unclassified_fraction_total_reads'] = round(kraken_species_record['percent_seqs_in_clade'] / 100, 6)
                     else:
+                        kraken_species_record = add_genus(kraken_species_record)
+                        if 'genus_taxon_name' in kraken_species_record:
+                            logging.info(json.dumps({"event_type": "add_genus_complete", "sequencing_run_id": run_id, "library_id": library_id, "species": kraken_species_record['taxon_name'], "genus": kraken_species_record['genus_taxon_name']}))
                         library_species_abundance['abundance_' + str(abundance_num) + '_name'] = kraken_species_record['taxon_name']
-                        library_species_abundance['abundance_' + str(abundance_num) + '_fraction_total_reads'] = kraken_species_record['percent_seqs_in_clade'] / 100
+                        library_species_abundance['abundance_' + str(abundance_num) + '_genus_name'] = kraken_species_record['genus_taxon_name']
+                        library_species_abundance['abundance_' + str(abundance_num) + '_genus_taxid'] = kraken_species_record['genus_ncbi_taxonomy_id']
+                        library_species_abundance['abundance_' + str(abundance_num) + '_fraction_total_reads'] = round(kraken_species_record['percent_seqs_in_clade'] / 100, 6)
                         abundance_num += 1
                 species_abundance_by_library_id[library_id] = library_species_abundance
 
@@ -264,30 +346,36 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
 
                 inferred_species = None
                 inferred_species = infer_species(config, species_abundance_by_library_id[library_id])
+                inferred_genus = None
+                inferred_genus = infer_genus(config, species_abundance_by_library_id[library_id], inferred_species)
                 if inferred_species is not None:
                     logging.debug(json.dumps({'event_type': 'library_species_inferred', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
                     libraries_by_library_id[library_id]['inferred_species_name'] = inferred_species
+                    libraries_by_library_id[library_id]['inferred_genus_name'] = inferred_genus
                     percent_inferred_species = get_percent_reads_by_species_name(species_abundance_by_library_id[library_id], inferred_species)
                     if percent_inferred_species is None:
                         logging.error(json.dumps({"event_type": "collect_library_qc_metric_failed", "metric": "inferred_species_percent", 'library_id': library_id, 'inferred_species': inferred_species}))
                     libraries_by_library_id[library_id]['inferred_species_percent'] = percent_inferred_species
+                    percent_inferred_genus = get_percent_reads_by_genus_name(species_abundance_by_library_id[library_id], inferred_genus)
+                    if percent_inferred_genus is None:
+                        logging.error(json.dumps({"event_type": "collect_library_qc_metric_failed", "metric": "inferred_genus_percent", 'library_id': library_id, 'inferred_genus': inferred_genus}))
+                    libraries_by_library_id[library_id]['inferred_genus_percent'] = percent_inferred_genus
                     if 'known_species' in config and inferred_species in config['known_species']:
                         inferred_species_genome_size = config['known_species'][inferred_species]['genome_size_mb']
                         libraries_by_library_id[library_id]['inferred_species_genome_size_mb'] = inferred_species_genome_size
                     else:
                         logging.debug(json.dumps({'event_type': 'library_species_inference_failed', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
 
-                    if all(k in libraries_by_library_id[library_id] for k in ['total_bases', 'inferred_species_genome_size_mb', 'inferred_species_percent']):
-                        total_bases = libraries_by_library_id[library_id]['total_bases']
+                    if all(k in libraries_by_library_id[library_id] for k in ['num_bases', 'inferred_species_genome_size_mb', 'inferred_species_percent']):
+                        num_bases = libraries_by_library_id[library_id]['num_bases']
                         genome_size = libraries_by_library_id[library_id]['inferred_species_genome_size_mb'] * 1000000
                         species_percent = libraries_by_library_id[library_id]['inferred_species_percent']
-                        if all([total_bases, genome_size, species_percent]):
-                            libraries_by_library_id[library_id]['inferred_species_estimated_depth'] = (total_bases * (species_percent / 100)) / genome_size
-                        try:
-                            percent_bases_above_q30 = float(row.get('percent_bases_above_q30', None))
-                        except ValueError as e:
-                            logging.error(json.dumps({'event_type': 'collect_library_qc_metric_failed', 'metric': 'percent_bases_above_q30', 'sequencing_run_id': run_id, 'library_id': library_id}))
-                        libraries_by_library_id[library_id]['percent_bases_above_q30'] = percent_bases_above_q30
+                        if all([num_bases, genome_size, species_percent]):
+                            libraries_by_library_id[library_id]['inferred_species_estimated_depth'] = round((num_bases * (species_percent / 100)) / genome_size, 3)
+                        if 'inferred_genus_percent' in libraries_by_library_id[library_id]:
+                            genus_percent = libraries_by_library_id[library_id]['inferred_genus_percent']
+                        if all([num_bases, genome_size, genus_percent]):
+                            libraries_by_library_id[library_id]['inferred_genus_estimated_depth'] = round((num_bases * (genus_percent / 100)) / genome_size, 3)
 
         with open(library_qc_dst_file, 'w') as f:
             json.dump(list(libraries_by_library_id.values()), f, indent=2)

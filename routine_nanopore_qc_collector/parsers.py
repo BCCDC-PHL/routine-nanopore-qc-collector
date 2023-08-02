@@ -69,6 +69,6 @@ def parse_kraken_species(kraken_species_path):
                 except ValueError as e:
                     row[field] = None
 
-            kraken_species.append(row)
+            kraken_species.append(row)        
 
     return kraken_species
