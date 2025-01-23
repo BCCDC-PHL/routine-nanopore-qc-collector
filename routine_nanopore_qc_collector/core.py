@@ -43,8 +43,8 @@ def find_latest_routine_nanopore_qc_output(analysis_dir):
 def find_analysis_dirs(config, check_complete=True):
     """
     """
-    gridion_run_id_regex = "\d{8}_\d{4}_X\d_[A-Z0-9]{8}_[a-z0-9]{8}$"
-    promethion_run_id_regex = "\d{8}_\d{4}_P2S_\d{4}-\w_[A-Z0-9]{8}_[a-z0-9]{8}$"
+    gridion_run_id_regex = "\\d{8}_\\d{4}_X\\d_[A-Z0-9]{8}_[a-z0-9]{8}$"
+    promethion_run_id_regex = "\\d{8}_\\d{4}_P2S_\\d+-\\w_[A-Z0-9]{8}_[a-z0-9]{8}$"
     analysis_by_run_dir = config['analysis_by_run_dir']
     subdirs = os.scandir(analysis_by_run_dir)
     
@@ -54,7 +54,7 @@ def find_analysis_dirs(config, check_complete=True):
         matches_promethion_regex = re.match(promethion_run_id_regex, run_id)
         sequencer_type = None
         if matches_gridion_regex:
-            sequencer_type = 'miseq'
+            sequencer_type = 'gridion'
         elif matches_promethion_regex:
             sequencer_type = 'promethion'
         not_excluded = run_id not in config['excluded_runs']
@@ -109,15 +109,15 @@ def find_runs(config):
     logging.info(json.dumps({"event_type": "find_runs_start"}))
     runs = []
     all_analysis_dirs = sorted(list(os.listdir(config['analysis_by_run_dir'])))
-    all_run_ids = filter(lambda x: re.match('\d{8}_\d{4}_', x) != None, all_analysis_dirs)
+    all_run_ids = filter(lambda x: re.match('\\d{8}_\\d{4}_', x) != None, all_analysis_dirs)
     for run_id in all_run_ids:
         if run_id in config['excluded_runs']:
             continue
 
         sequencer_type = None
-        if re.match('\d{8}_\d{4}_X', run_id):
+        if re.match('\\d{8}_\\d{4}_X', run_id):
             sequencer_type = 'gridion'
-        elif re.match('\d{8}_\d{4}_P', run_id):
+        elif re.match('\\d{8}_\\d{4}_P', run_id):
             sequencer_type = 'promethion'
 
         analysis_dir = os.path.join(config['analysis_by_run_dir'], run_id)
