@@ -44,7 +44,7 @@ def find_analysis_dirs(config, check_complete=True):
     """
     """
     gridion_run_id_regex = "\d{8}_\d{4}_X\d_[A-Z0-9]{8}_[a-z0-9]{8}$"
-    promethion_run_id_regex = "\d{8}_\d{4}_P2S_\d{4}-\d_[A-Z0-9]{8}_[a-z0-9]{8}$"
+    promethion_run_id_regex = "\d{8}_\d{4}_P2S_\d{4}-\w_[A-Z0-9]{8}_[a-z0-9]{8}$"
     analysis_by_run_dir = config['analysis_by_run_dir']
     subdirs = os.scandir(analysis_by_run_dir)
     
