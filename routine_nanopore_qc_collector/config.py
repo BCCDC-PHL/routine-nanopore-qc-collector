@@ -1,5 +1,6 @@
 import json
 import csv
+import os
 
 
 def get_excluded_runs(config):
@@ -98,7 +99,7 @@ def get_known_species(config):
     return known_species
 
 
-def load_config(config_path: str) -> dict[str, object]:
+def load_config(config_path: os.PathLike) -> dict[str, object]:
     """
     """
     with open(config_path, 'r') as f:
