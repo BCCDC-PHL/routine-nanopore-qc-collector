@@ -126,8 +126,19 @@ def find_runs(config):
         if os.path.exists(os.path.join(latest_routine_nanopore_qc_output_dir, 'analysis_complete.json')):
             run = {
                 'run_id': run_id,
-                'sequencer_type': sequencer_type,
+                'instrument_type': sequencer_type,
             }
+            run_qc_check_path = os.path.join(analysis_dir, f"{run_id}_qc_check.json")
+            if os.path.exists(run_qc_check_path):
+                with open(run_qc_check_path) as f:
+                    run_qc_check = json.load(f)
+                    checked_metrics = run_qc_check.get('checked_metrics', [])
+                    overall_qc_pass_fail = run_qc_check.get('overall_pass_fail')
+                    run_qc_check.pop('overall_pass_fail', None)
+                    run['run_qc_check'] = {
+                        'checked_metrics': checked_metrics,
+                        'overall_qc_pass_fail': overall_qc_pass_fail
+                    }
             runs.append(run)
 
     log.info({
@@ -190,7 +201,6 @@ def infer_genus(config: dict[str, object], species_abundance, inferred_species):
             inferred_genus = species_abundance.get(f"{k}genus_name")
 
     return inferred_genus
-
 
 
 def get_percent_reads_by_species_name(species_abundance, species_name):
@@ -285,13 +295,21 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
     log.info({"event_type": "collect_outputs_start", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']})
 
     libraries_by_library_id = {}
+    parsed_samplesheet = []
+    parsed_samplesheet_path = samplesheet.find_parsed_samplesheet(run_id, analysis_dir['path'])
+    if parsed_samplesheet_path is not None:
+        parsed_samplesheet = samplesheet.parse_samplesheet(parsed_samplesheet_path)
+    for row in parsed_samplesheet:
+        if 'sample_id' in row and row['sample_id'] not in libraries_by_library_id:
+            libraries_by_library_id[row['sample_id']] = row
     latest_routine_nanopore_qc_output_path = find_latest_routine_nanopore_qc_output(analysis_dir['path'])
     routine_nanopore_qc_output_dir_contents = os.listdir(latest_routine_nanopore_qc_output_path)
     for library_output_dir in routine_nanopore_qc_output_dir_contents:
         if os.path.isdir(os.path.join(latest_routine_nanopore_qc_output_path, library_output_dir)):
             library_id = os.path.basename(library_output_dir)
-            libraries_by_library_id[library_id] = {}
-    
+            if library_id not in libraries_by_library_id:
+                libraries_by_library_id[library_id] = {}
+
     # species-abundance
     species_abundance_by_library_id = {library_id: {'library_id': library_id} for library_id in libraries_by_library_id.keys()}
     species_abundance_dst_file = os.path.join(config['output_dir'], "species-abundance", run_id + "_species_abundance.json")

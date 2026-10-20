@@ -1,32 +1,36 @@
-import glob
-import json
+import csv
 import logging
 import os
-import re
 
+log = logging.getLogger(__name__)
 
-def find_samplesheet_for_run(run_id, sequencer_output_dirs):
+def find_parsed_samplesheet(run_id: str, analysis_dir: os.PathLike):
     """
+    Find the parsed samplesheet for a run.
+    The parsed samplesheet has fields: 'sample_id', 'barcode', 'project_id'
     """
-    samplesheets = []
-    samplesheet_path = None
+    samplesheet_path = os.path.join(analysis_dir, f"{run_id}_sample_sheet.parsed.csv")
 
-    sequencer_run_dir = ""
-
-    for run_dir in os.listdir(sequencer_output_dir):
-        if os.path.basename(run_dir) == run_id:
-            sequencer_run_dir = os.path.join(sequencer_output_dir, run_dir)
-            samplesheet_glob = os.path.join(sequencer_run_dir, 'sample_sheet_*.csv')
-            samplesheets = glob.glob(samplesheet_glob)
-
-        if len(samplesheets) == 1:
-            samplesheet_path = samplesheets[0]
+    if not os.path.exists(samplesheet_path):
+        log.error({
+            "event_type": "failed_to_find_file",
+            "sequencing_run_id": run_id,
+            "file_type": "parsed_samplesheet",
+            "path": samplesheet_path,
+        })
+        samplesheet_path = None
 
     return samplesheet_path
 
 
-def parse_samplesheet(samplesheet_path):
+def parse_samplesheet(samplesheet_path: os.PathLike) -> list[dict]:
     """
+    Parse the samplesheet file into a list of dicts.
     """
     samplesheet = []
+    with open(samplesheet_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            samplesheet.append(row)
+
     return samplesheet
